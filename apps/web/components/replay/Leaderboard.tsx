@@ -11,8 +11,11 @@ interface Props {
 }
 
 export function Leaderboard({ raceData, frame }: Props) {
-  const focused = usePlaybackStore((s) => s.focusedDriver);
-  const toggleFocused = usePlaybackStore((s) => s.toggleFocusedDriver);
+  const selected = usePlaybackStore((s) => s.selectedDrivers);
+  const reference = usePlaybackStore((s) => s.referenceDriver);
+  const toggleSelected = usePlaybackStore((s) => s.toggleSelectedDriver);
+  const setReference = usePlaybackStore((s) => s.setReferenceDriver);
+  const clearSelection = usePlaybackStore((s) => s.clearSelection);
 
   const driverLookup = useMemo<Map<number, DriverInfo>>(
     () => new Map(raceData.drivers.map((d) => [d.number, d])),
@@ -25,6 +28,8 @@ export function Leaderboard({ raceData, frame }: Props) {
 
   const leaderLap = rows[0]?.lap ?? 0;
   const totalLaps = raceData.meta.total_laps || leaderLap;
+  const anySelected = selected.length > 0;
+  const effectiveReference = reference ?? selected[0] ?? null;
 
   if (rows.length === 0) {
     return <p className="text-muted-foreground p-4 text-sm">Waiting for frames…</p>;
@@ -32,37 +37,48 @@ export function Leaderboard({ raceData, frame }: Props) {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="bg-background/95 sticky top-0 z-10 flex items-center justify-between border-b border-foreground/10 px-3 py-2 text-xs uppercase tracking-widest">
+      <div className="bg-background/95 sticky top-0 z-10 flex items-center justify-between gap-2 border-b border-foreground/10 px-3 py-2 text-xs uppercase tracking-widest">
         <span className="text-muted-foreground">Leaderboard</span>
-        <span className="font-mono tabular-nums">
-          Lap {leaderLap}
-          {totalLaps ? ` / ${totalLaps}` : ""}
-        </span>
+        <div className="flex items-center gap-3">
+          {anySelected && (
+            <button
+              type="button"
+              onClick={clearSelection}
+              className="text-muted-foreground hover:text-foreground text-[10px] underline-offset-2 hover:underline"
+            >
+              clear ({selected.length})
+            </button>
+          )}
+          <span className="font-mono tabular-nums">
+            Lap {leaderLap}
+            {totalLaps ? ` / ${totalLaps}` : ""}
+          </span>
+        </div>
       </div>
       <ol className="divide-foreground/10 flex-1 divide-y overflow-y-auto text-sm">
         {rows.map((r) => {
-          const isFocused = focused === r.driver.number;
+          const isSelected = selected.includes(r.driver.number);
+          const isReference = effectiveReference === r.driver.number;
+          const dim = anySelected && !isSelected;
+          const colour = r.driver.team_colour ? `#${r.driver.team_colour}` : "#888";
           return (
-            <li key={r.driver.number}>
+            <li key={r.driver.number} className="relative">
               <button
                 type="button"
-                onClick={() => toggleFocused(r.driver.number)}
+                onClick={() => toggleSelected(r.driver.number)}
                 className={`flex w-full items-center gap-3 px-3 py-1.5 tabular-nums text-left transition-colors ${
-                  isFocused
-                    ? "bg-foreground/10"
-                    : focused != null
-                      ? "opacity-50 hover:bg-foreground/5"
-                      : "hover:bg-foreground/5"
+                  isSelected ? "bg-foreground/10" : dim ? "opacity-40 hover:bg-foreground/5" : "hover:bg-foreground/5"
                 }`}
-                style={{ opacity: r.status === "out" ? 0.35 : undefined }}
-                aria-pressed={isFocused}
+                style={{
+                  opacity: r.status === "out" ? 0.35 : undefined,
+                  borderLeft: isSelected ? `3px solid ${colour}` : "3px solid transparent",
+                }}
+                aria-pressed={isSelected}
               >
                 <span className="text-muted-foreground w-5 text-right">{r.position}</span>
                 <span
                   className="inline-block h-3 w-1 rounded-sm"
-                  style={{
-                    backgroundColor: r.driver.team_colour ? `#${r.driver.team_colour}` : "#888",
-                  }}
+                  style={{ backgroundColor: colour }}
                   aria-hidden
                 />
                 <span className="w-10 font-semibold">{r.driver.code}</span>
@@ -92,6 +108,27 @@ export function Leaderboard({ raceData, frame }: Props) {
                   </span>
                 )}
               </button>
+              {isSelected && (
+                // Star button sits *inside* the row but stops propagation so
+                // clicking it doesn't toggle the row's selection. It marks
+                // this driver as the reference for delta/gap charts.
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setReference(r.driver.number);
+                  }}
+                  className={`absolute right-1 top-1/2 -translate-y-1/2 rounded p-1 text-xs leading-none transition-colors ${
+                    isReference
+                      ? "text-amber-400"
+                      : "text-foreground/30 hover:text-amber-300"
+                  }`}
+                  aria-label={isReference ? "Reference driver" : "Set as reference"}
+                  title={isReference ? "Reference driver" : "Set as reference"}
+                >
+                  {isReference ? "★" : "☆"}
+                </button>
+              )}
             </li>
           );
         })}
