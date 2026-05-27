@@ -9,6 +9,8 @@ export interface LeaderboardRow {
   status: "on_track" | "pit" | "out";
   /** Time gap to the leader in seconds (estimated from avg lap speed). */
   gapToLeader: number;
+  /** Time gap to the car ahead in seconds. 0 for the leader. */
+  gapToAhead: number;
 }
 
 /**
@@ -61,15 +63,36 @@ export function computeLeaderboard(
       raceProgress: s.lap * safeL + s.d,
       status: s.st,
       gapToLeader: 0,
+      gapToAhead: 0,
     });
   }
 
-  rows.sort((a, b) => b.raceProgress - a.raceProgress);
+  // P2 race-end override: past the chequered flag, lock to the official
+  // classification. Gaps are still rendered from race-progress because
+  // FastF1's per-driver finish-time deficits aren't (yet) in the payload.
+  const { race_end_t, final_classification } = data.meta;
+  if (race_end_t != null && final_classification && frame.t >= race_end_t) {
+    rows.sort((a, b) => {
+      const pa = final_classification[String(a.driver.number)] ?? Number.POSITIVE_INFINITY;
+      const pb = final_classification[String(b.driver.number)] ?? Number.POSITIVE_INFINITY;
+      return pa - pb;
+    });
+  } else {
+    rows.sort((a, b) => b.raceProgress - a.raceProgress);
+  }
   const leaderProgress = rows[0]?.raceProgress ?? 0;
   rows.forEach((r, i) => {
     r.position = i + 1;
     const speed = avgSpeeds.get(r.driver.number) ?? fallbackSpeed;
     r.gapToLeader = speed > 0 ? (leaderProgress - r.raceProgress) / speed : 0;
+    if (i === 0) {
+      r.gapToAhead = 0;
+    } else {
+      const ahead = rows[i - 1]!;
+      // Use the trailing car's pace to estimate how long it would take to
+      // cover the metres gap. Matches the gap-to-leader convention.
+      r.gapToAhead = speed > 0 ? (ahead.raceProgress - r.raceProgress) / speed : 0;
+    }
   });
   return rows;
 }

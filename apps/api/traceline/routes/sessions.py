@@ -5,10 +5,12 @@ from functools import partial
 from anyio import to_thread
 from fastapi import APIRouter, HTTPException, Query
 
+from traceline.config import settings
 from traceline.schemas.session import RaceData, SampleLap, SessionMeta
-from traceline.services import fastf1_loader
+from traceline.services import fastf1_loader, openf1_loader
 from traceline.services import race_data as race_data_service
 from traceline.services.fastf1_loader import TelemetryFetchError
+from traceline.services.openf1_client import OpenF1Error
 
 logger = logging.getLogger(__name__)
 
@@ -56,13 +58,21 @@ async def get_race_data(
     session_type: str = Query("R"),
 ) -> RaceData:
     """Full pre-computed replay payload. Slow on a cold cache (1-3 min)."""
+    # Pick the data source per env config. FastF1 has been blocked by F1's
+    # CloudFront since mid-2026; OpenF1 is the working fallback. See
+    # traceline/services/openf1_loader.py for scope notes (MVP — no telemetry).
+    if settings.data_source.lower() == "openf1":
+        build = partial(openf1_loader.compute_race_data_openf1, year, round_, session_type)
+    else:
+        build = partial(race_data_service.compute_race_data, year, round_, session_type)
+
     try:
-        return await to_thread.run_sync(
-            partial(race_data_service.compute_race_data, year, round_, session_type)
-        )
+        return await to_thread.run_sync(build)
     except TelemetryFetchError as e:
-        # 503: retryable upstream failure. The client can simply hit it again.
         logger.warning("Telemetry fetch failed for %s/%s/%s: %s", year, round_, session_type, e)
+        raise HTTPException(status_code=503, detail=str(e)) from e
+    except OpenF1Error as e:
+        logger.warning("OpenF1 fetch failed for %s/%s/%s: %s", year, round_, session_type, e)
         raise HTTPException(status_code=503, detail=str(e)) from e
     except Exception as e:
         logger.exception("RaceData build failed for %s/%s/%s", year, round_, session_type)
