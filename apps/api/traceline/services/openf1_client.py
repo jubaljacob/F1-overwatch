@@ -131,6 +131,13 @@ class OpenF1Client:
         """Race-order position over time. Last row per driver = final classification."""
         return self.get("/position", session_key=session_key, driver_number=driver_number)
 
+    def stints(self, session_key: int, driver_number: int | None = None) -> list[dict[str, Any]]:
+        """Tyre stints per driver: one row per (driver, stint_number) with
+        compound + lap range + tyre age at stint start. OpenF1's /laps does
+        not carry compound info — this is the source of truth.
+        """
+        return self.get("/stints", session_key=session_key, driver_number=driver_number)
+
 
 def resolve_session_key(
     client: OpenF1Client,

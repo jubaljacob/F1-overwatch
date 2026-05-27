@@ -72,6 +72,7 @@ def compute_race_data_openf1(year: int, round_: int, session_type: str = "R") ->
 
         laps_raw = client.laps(session_key)
         positions_raw = client.position(session_key)
+        stints_raw = client.stints(session_key)
 
     # Resolve a reference timestamp (race start) so we can convert OpenF1's
     # absolute ISO timestamps into seconds-from-zero, matching FastF1.
@@ -112,7 +113,7 @@ def compute_race_data_openf1(year: int, round_: int, session_type: str = "R") ->
         per_driver_arrs[num] = arrs
 
     frames = _assemble_frames(times, per_driver_arrs)
-    lap_records = _build_lap_records_openf1(laps_raw)
+    lap_records = _build_lap_records_openf1(laps_raw, stints_raw)
     race_end_t, classification = _extract_race_end_openf1(positions_raw, laps_raw, t0)
 
     return RaceData(
@@ -127,6 +128,7 @@ def compute_race_data_openf1(year: int, round_: int, session_type: str = "R") ->
             t_end=float(raw_t_end),
             race_end_t=race_end_t,
             final_classification=classification,
+            race_start_t=race_start,
         ),
         drivers=drivers,
         circuit=CircuitGeometry(
@@ -434,8 +436,15 @@ def _status_for_driver(
     return status
 
 
-def _build_lap_records_openf1(laps_raw: list[dict[str, Any]]) -> list:
+def _build_lap_records_openf1(
+    laps_raw: list[dict[str, Any]], stints_raw: list[dict[str, Any]]
+) -> list:
     from traceline.schemas.session import LapRecord
+
+    # Index stints by driver so per-lap lookup is O(stints-per-driver) instead
+    # of O(total stints). Sorted by lap_start so the linear scan in
+    # _stint_for_lap can short-circuit.
+    stints_by_driver = _stints_by_driver(stints_raw)
 
     out: list[LapRecord] = []
     for lap in laps_raw:
@@ -444,6 +453,9 @@ def _build_lap_records_openf1(laps_raw: list[dict[str, Any]]) -> list:
             ln = int(lap["lap_number"])
         except (KeyError, ValueError, TypeError):
             continue
+
+        compound, tyre_age = _compound_and_age_for_lap(stints_by_driver.get(drv, []), ln)
+
         out.append(
             LapRecord(
                 driver=drv,
@@ -452,13 +464,60 @@ def _build_lap_records_openf1(laps_raw: list[dict[str, Any]]) -> list:
                 sector_1_s=_float_or_none(lap.get("duration_sector_1")),
                 sector_2_s=_float_or_none(lap.get("duration_sector_2")),
                 sector_3_s=_float_or_none(lap.get("duration_sector_3")),
-                compound=None,  # OpenF1 doesn't return compound on /laps; future: /stints
-                tyre_age=None,
+                compound=compound,
+                tyre_age=tyre_age,
                 pit_in=lap.get("pit_in_time") is not None,
                 pit_out=lap.get("pit_out_time") is not None,
             )
         )
     return out
+
+
+def _stints_by_driver(
+    stints_raw: list[dict[str, Any]],
+) -> dict[int, list[dict[str, Any]]]:
+    out: dict[int, list[dict[str, Any]]] = {}
+    for s in stints_raw:
+        try:
+            drv = int(s["driver_number"])
+        except (KeyError, ValueError, TypeError):
+            continue
+        out.setdefault(drv, []).append(s)
+    for arr in out.values():
+        arr.sort(key=lambda s: s.get("lap_start") or 0)
+    return out
+
+
+def _compound_and_age_for_lap(
+    driver_stints: list[dict[str, Any]], lap_number: int
+) -> tuple[str | None, int | None]:
+    """Find the stint covering `lap_number` and return its compound +
+    accumulated tyre age. Age is 1-indexed at the *end* of the lap to
+    match FastF1's TyreLife convention and F1 broadcast usage ("5 laps
+    on those mediums" = age 5 on the fifth lap of the stint).
+    Returns (None, None) if no stint matches (e.g., driver retired before
+    stint metadata stabilised).
+    """
+    for stint in driver_stints:
+        lap_start = stint.get("lap_start")
+        lap_end = stint.get("lap_end")
+        if lap_start is None or lap_end is None:
+            continue
+        try:
+            ls = int(lap_start)
+            le = int(lap_end)
+        except (TypeError, ValueError):
+            continue
+        if ls <= lap_number <= le:
+            compound_raw = stint.get("compound")
+            compound = str(compound_raw).upper() if compound_raw else None
+            age_at_start = stint.get("tyre_age_at_start")
+            try:
+                base_age = int(age_at_start) if age_at_start is not None else 0
+            except (TypeError, ValueError):
+                base_age = 0
+            return compound, base_age + (lap_number - ls) + 1
+    return None, None
 
 
 def _extract_race_end_openf1(

@@ -84,6 +84,10 @@ export interface RaceDataMeta {
   // JSON object keys are strings; consumers convert when looking up.
   race_end_t?: number | null;
   final_classification?: Record<string, number> | null;
+  /** Session-time at which lap 1 begins for the leader — i.e. lights-out.
+   *  Used to baseline the position-change arrow at race start rather than
+   *  at the start of the recorded data (where order is meaningless). */
+  race_start_t?: number | null;
 }
 
 export interface RaceData {
@@ -92,4 +96,61 @@ export interface RaceData {
   circuit: CircuitGeometry;
   frames: Frame[];
   laps: LapRecord[];
+}
+
+// --- P4 strategy types ----------------------------------------------------
+
+export interface CompoundFit {
+  compound: string;
+  intercept: number;
+  coef_tyre_age: number;
+  coef_lap_norm: number;
+  coef_track_temp: number | null;
+  n_samples: number;
+  r_squared: number;
+  rmse: number;
+}
+
+export interface TyreModelOut {
+  year: number;
+  round: number;
+  n_sessions: number;
+  n_samples_total: number;
+  track_temp_c: number | null;
+  total_laps: number;
+  compounds: CompoundFit[];
+}
+
+export interface PitStop {
+  lap: number;
+  new_compound: string;
+}
+
+export interface Strategy {
+  starting_compound: string;
+  pit_stops: PitStop[];
+}
+
+export interface LapPrediction {
+  lap: number;
+  compound: string;
+  tyre_age: number;
+  predicted_lap_time_s: number;
+  pit_stop: boolean;
+}
+
+export interface SimulationOut {
+  driver_num: number;
+  total_race_time_s: number;
+  finishing_position: number;
+  laps: LapPrediction[];
+  actual_total_race_time_s: number | null;
+  actual_finishing_position: number | null;
+  delta_to_actual_s: number | null;
+}
+
+export interface RankedStrategy {
+  rank: number;
+  strategy: Strategy;
+  result: SimulationOut;
 }

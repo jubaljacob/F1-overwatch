@@ -4,7 +4,7 @@ from fastapi.middleware.gzip import GZipMiddleware
 
 from traceline import __version__
 from traceline.config import settings
-from traceline.routes import health, sessions
+from traceline.routes import health, sessions, strategy
 
 
 def create_app() -> FastAPI:
@@ -24,6 +24,7 @@ def create_app() -> FastAPI:
     app.add_middleware(GZipMiddleware, minimum_size=1024)
     app.include_router(health.router)
     app.include_router(sessions.router)
+    app.include_router(strategy.router)
     return app
 
 

@@ -87,6 +87,7 @@ def compute_race_data(year: int, round_: int, session_type: str = "R") -> RaceDa
             t_end=float(t_end),
             race_end_t=race_end_t,
             final_classification=classification,
+            race_start_t=race_start,
         ),
         drivers=drivers,
         circuit=CircuitGeometry(

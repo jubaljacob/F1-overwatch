@@ -138,12 +138,15 @@ export function GapOverRaceChart({ raceData }: Props) {
                 border: "1px solid rgba(255,255,255,0.12)",
                 borderRadius: 4,
                 fontSize: 12,
+                color: "#fff",
               }}
+              labelStyle={{ color: "#fff" }}
+              itemStyle={{ color: "#fff" }}
               labelFormatter={(lap) => `Lap ${lap}`}
-              formatter={(v: number, code: string) => [
-                `${v > 0 ? "+" : ""}${v.toFixed(2)}s`,
-                code,
-              ]}
+              formatter={(value, name) => {
+                const v = typeof value === "number" ? value : Number(value);
+                return [`${v > 0 ? "+" : ""}${v.toFixed(2)}s`, String(name)];
+              }}
             />
             {lines.map((l) => (
               <Line

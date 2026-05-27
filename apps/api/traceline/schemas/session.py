@@ -102,6 +102,11 @@ class RaceDataMeta(BaseModel):
         default=None,
         description="Official position keyed by driver number; 1 = winner",
     )
+    # Session-time at which lap 1 begins for the leader — i.e. lights-out.
+    # Used by the leaderboard's position-change arrow to baseline at race
+    # start rather than at the start of the recorded data (which includes
+    # the pre-race grid-walk / formation lap, where order is meaningless).
+    race_start_t: float | None = None
 
 
 class RaceData(BaseModel):

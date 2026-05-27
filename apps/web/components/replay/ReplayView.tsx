@@ -8,9 +8,13 @@ import { useEffect, useMemo, useState } from "react";
 import { DeltaTimeChart } from "../analytics/DeltaTimeChart";
 import { GapOverRaceChart } from "../analytics/GapOverRaceChart";
 import { SectorBreakdownChart } from "../analytics/SectorBreakdownChart";
+import { StintAnalysisChart } from "../analytics/StintAnalysisChart";
+import { StrategyView } from "../strategy/StrategyView";
 import { Leaderboard } from "./Leaderboard";
 import { PlaybackControls } from "./PlaybackControls";
 import { TrackCanvas } from "./TrackCanvas";
+
+type PanelMode = "analytics" | "stints" | "strategy";
 
 interface Props {
   year: number;
@@ -37,6 +41,7 @@ export function ReplayView({ year, round, sessionType }: Props) {
   const raceData = usePlaybackStore((s) => s.raceData);
   const currentTime = usePlaybackStore((s) => s.currentTime);
   const selectedCount = usePlaybackStore((s) => s.selectedDrivers.length);
+  const [panelMode, setPanelMode] = useState<PanelMode>("analytics");
 
   useEffect(() => {
     if (query.data) setRaceData(query.data);
@@ -88,7 +93,7 @@ export function ReplayView({ year, round, sessionType }: Props) {
         </span>
       </header>
 
-      <div className="grid min-h-0 flex-1 grid-cols-[1fr_320px]">
+      <div className="grid min-h-0 flex-1" style={{ gridTemplateColumns: "minmax(0,1fr) 600px" }}>
         <section className="bg-muted/40 relative min-h-0">
           <TrackCanvas raceData={raceData} frame={frame} />
         </section>
@@ -97,16 +102,40 @@ export function ReplayView({ year, round, sessionType }: Props) {
         </aside>
       </div>
 
-      {selectedCount >= 2 && (
-        <section className="grid h-[260px] shrink-0 grid-cols-[1fr_1fr_300px] border-t border-foreground/10 bg-background/95">
-          <div className="min-w-0 border-r border-foreground/10">
-            <DeltaTimeChart raceData={raceData} />
+      {selectedCount >= 1 && (
+        <section className="flex h-[280px] shrink-0 flex-col border-t border-foreground/10 bg-background/95">
+          <div className="flex items-center gap-1 border-b border-foreground/10 px-3 py-1">
+            <PanelTab active={panelMode === "analytics"} onClick={() => setPanelMode("analytics")}>
+              Analytics
+            </PanelTab>
+            <PanelTab active={panelMode === "stints"} onClick={() => setPanelMode("stints")}>
+              Stints
+            </PanelTab>
+            <PanelTab active={panelMode === "strategy"} onClick={() => setPanelMode("strategy")}>
+              Strategy
+            </PanelTab>
+            {panelMode === "analytics" && selectedCount < 2 && (
+              <span className="text-muted-foreground ml-3 text-[10px] italic">
+                pick a second driver to populate analytics charts
+              </span>
+            )}
           </div>
-          <div className="min-w-0 border-r border-foreground/10">
-            <GapOverRaceChart raceData={raceData} />
-          </div>
-          <div className="min-w-0">
-            <SectorBreakdownChart raceData={raceData} />
+          <div className="min-h-0 flex-1">
+            {panelMode === "analytics" && (
+              <div className="grid h-full grid-cols-[1fr_1fr_300px] divide-x divide-foreground/10">
+                <div className="min-w-0">
+                  <DeltaTimeChart raceData={raceData} />
+                </div>
+                <div className="min-w-0">
+                  <GapOverRaceChart raceData={raceData} />
+                </div>
+                <div className="min-w-0">
+                  <SectorBreakdownChart raceData={raceData} />
+                </div>
+              </div>
+            )}
+            {panelMode === "stints" && <StintAnalysisChart raceData={raceData} />}
+            {panelMode === "strategy" && <StrategyView raceData={raceData} />}
           </div>
         </section>
       )}
@@ -145,6 +174,30 @@ function LoadingState({ year, round }: { year: number; round: number }) {
         Cold FastF1 cache: 1–3 min · subsequent loads are instant
       </p>
     </main>
+  );
+}
+
+function PanelTab({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`rounded px-2.5 py-1 text-[11px] uppercase tracking-widest transition-colors ${
+        active
+          ? "bg-foreground/10 text-foreground"
+          : "text-muted-foreground hover:bg-foreground/5 hover:text-foreground"
+      }`}
+    >
+      {children}
+    </button>
   );
 }
 
