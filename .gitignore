@@ -34,6 +34,8 @@ build/
 apps/api/.fastf1-cache/
 .racedata-cache/
 apps/api/.racedata-cache/
+.openf1-cache/
+apps/api/.openf1-cache/
 precomputed/
 *.parquet
 

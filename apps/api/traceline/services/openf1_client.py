@@ -20,11 +20,18 @@ OpenF1 lookup model:
 
 from __future__ import annotations
 
+import gzip
+import hashlib
+import json
 import logging
+import random
 import time
+from pathlib import Path
 from typing import Any
 
 import httpx
+
+from traceline.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +39,14 @@ OPENF1_BASE_URL = "https://api.openf1.org/v1"
 DEFAULT_TIMEOUT_S = 30.0
 MAX_RETRIES = 3
 RETRY_BACKOFF_S = 2.0
+# 429s are expected on bursty per-driver fan-outs; give them their own,
+# larger retry budget so a rate-limited burst doesn't consume the small
+# server-error budget that 5xx/network errors share.
+MAX_RATE_LIMIT_RETRIES = 6
+# Cap on how long we'll honour a server-provided Retry-After hint. OpenF1
+# occasionally suggests minute-scale waits that would blow past the route
+# timeout; bound it and let our own backoff do the rest.
+MAX_RETRY_AFTER_S = 15.0
 
 
 class OpenF1Error(RuntimeError):
@@ -69,13 +84,48 @@ class OpenF1Client:
 
         Every OpenF1 list endpoint returns a JSON array, so we type-narrow
         here rather than at every call site.
+
+        Two layers of resilience:
+          1. Disk cache (dev-only, see config.openf1_cache_enabled): keyed
+             by (path, params). Past-session data is immutable, so a hit
+             skips the network entirely. This makes failed builds resumable
+             across retries instead of re-burning the rate limit each time.
+          2. Retry policy: 5xx and network errors share `_max_retries` with
+             linear backoff; 429 gets its own larger budget and honours the
+             server's Retry-After header (clamped) with jitter on top.
         """
         # Drop None params so the URL doesn't get cluttered with empty values.
         clean = {k: v for k, v in params.items() if v is not None}
+
+        cache_path = _cache_path_for(path, clean)
+        if cache_path is not None:
+            cached = _read_cache(cache_path)
+            if cached is not None:
+                return cached
+
         last_err: Exception | None = None
-        for attempt in range(1, self._max_retries + 1):
+        server_attempts = 0  # 5xx / network errors
+        rate_limit_attempts = 0  # 429s — separate budget
+        while True:
             try:
                 resp = self._client.get(path, params=clean)
+                if resp.status_code == 429:
+                    rate_limit_attempts += 1
+                    if rate_limit_attempts > MAX_RATE_LIMIT_RETRIES:
+                        raise OpenF1Error(
+                            f"OpenF1 {path} rate-limited after "
+                            f"{MAX_RATE_LIMIT_RETRIES} retries"
+                        )
+                    delay = _retry_after_delay(resp, rate_limit_attempts)
+                    logger.warning(
+                        "OpenF1 %s 429 (attempt %d/%d), sleeping %.1fs",
+                        path,
+                        rate_limit_attempts,
+                        MAX_RATE_LIMIT_RETRIES,
+                        delay,
+                    )
+                    time.sleep(delay)
+                    continue
                 if resp.status_code >= 500:
                     raise httpx.HTTPStatusError(
                         f"server error {resp.status_code}",
@@ -86,18 +136,22 @@ class OpenF1Client:
                 data = resp.json()
                 if not isinstance(data, list):
                     raise OpenF1Error(f"{path} returned non-array body: {type(data).__name__}")
+                if cache_path is not None:
+                    _write_cache(cache_path, data)
                 return data
             except (httpx.HTTPStatusError, httpx.RequestError) as exc:
                 last_err = exc
+                server_attempts += 1
                 logger.warning(
                     "OpenF1 %s attempt %d/%d failed: %s",
                     path,
-                    attempt,
+                    server_attempts,
                     self._max_retries,
                     exc,
                 )
-                if attempt < self._max_retries:
-                    time.sleep(RETRY_BACKOFF_S * attempt)
+                if server_attempts >= self._max_retries:
+                    break
+                time.sleep(RETRY_BACKOFF_S * server_attempts)
         raise OpenF1Error(f"OpenF1 {path} failed after {self._max_retries} attempts: {last_err}")
 
     # --- typed convenience wrappers ---------------------------------------
@@ -159,6 +213,80 @@ class OpenF1Client:
         and processes each driver's payload before fetching the next.
         """
         return self.get("/car_data", session_key=session_key, driver_number=driver_number)
+
+
+# --- dev-only response cache ---------------------------------------------
+# TODO(prod): remove this block (and the config flags) before deploy.
+# It exists to make local development survive OpenF1 rate limits during
+# cold builds; production should serve from the racedata blob cache and
+# never re-burst the upstream API.
+
+
+def _cache_path_for(path: str, params: dict[str, Any]) -> Path | None:
+    if not settings.openf1_cache_enabled:
+        return None
+    # Stable key: endpoint + sorted param pairs. Hash keeps filenames
+    # short and filesystem-safe even if params grow.
+    key_src = path + "?" + "&".join(f"{k}={params[k]}" for k in sorted(params))
+    digest = hashlib.sha1(key_src.encode("utf-8")).hexdigest()[:16]
+    # Endpoint slug in the filename makes the cache dir grep-friendly.
+    slug = path.strip("/").replace("/", "_") or "root"
+    return settings.openf1_cache_dir / f"{slug}_{digest}.json.gz"
+
+
+def _read_cache(path: Path) -> list[dict[str, Any]] | None:
+    if not path.exists():
+        return None
+    try:
+        with gzip.open(path, "rb") as f:
+            data = json.loads(f.read())
+        if isinstance(data, list):
+            return data
+        return None
+    except Exception as e:
+        logger.warning("OpenF1 cache read failed for %s: %s", path.name, e)
+        try:
+            path.unlink(missing_ok=True)
+        except Exception:
+            pass
+        return None
+
+
+def _write_cache(path: Path, data: list[dict[str, Any]]) -> None:
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    try:
+        with gzip.open(tmp, "wb") as f:
+            f.write(json.dumps(data, separators=(",", ":")).encode("utf-8"))
+        tmp.replace(path)
+    except Exception as e:
+        logger.warning("OpenF1 cache write failed for %s: %s", path.name, e)
+        try:
+            tmp.unlink(missing_ok=True)
+        except Exception:
+            pass
+
+
+def _retry_after_delay(resp: httpx.Response, attempt: int) -> float:
+    """Decide how long to wait after a 429.
+
+    Prefer the server's Retry-After header (seconds or HTTP-date); fall
+    back to exponential backoff with jitter when it's absent or unparseable.
+    Always clamp to MAX_RETRY_AFTER_S so a hostile/buggy hint can't stall
+    the request beyond the route timeout.
+    """
+    header = resp.headers.get("retry-after")
+    if header:
+        try:
+            value = float(header)
+            if value >= 0:
+                return min(value, MAX_RETRY_AFTER_S) + random.uniform(0, 0.5)
+        except ValueError:
+            # HTTP-date form — ignore and fall through to backoff. We
+            # don't bother parsing it; OpenF1 uses seconds in practice.
+            pass
+    # Exponential with jitter, capped.
+    backoff = min(RETRY_BACKOFF_S * (2 ** (attempt - 1)), MAX_RETRY_AFTER_S)
+    return backoff + random.uniform(0, 0.5)
 
 
 def resolve_session_key(
