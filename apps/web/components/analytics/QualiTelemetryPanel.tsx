@@ -39,6 +39,11 @@ interface TraceRow {
   gear: number | null;
   thr: number | null;
   brk: number | null;
+  /** Estimated ERS state-of-charge (0–100 %), modelled from throttle/brake
+   *  inputs. Real battery state isn't in the F1 public feed; this gives the
+   *  user a plausible deployment/recovery shape (drains on straights,
+   *  regenerates under braking) without claiming to be real telemetry. */
+  ers: number | null;
 }
 
 /** Quali-specific live telemetry panel.
@@ -102,11 +107,18 @@ function QualiTelemetryPanelInner({ raceData, frameIdx, lapIndex, qualiSegment =
 
   const driverColour = driverInfo?.team_colour ? `#${driverInfo.team_colour}` : "#fbbf24";
 
+  // Force a fresh chart instance whenever the active lap (or driver)
+  // changes. Recharts otherwise diffs the previous render's SVG paths
+  // against the new (mostly-empty) trace, leaving the previous lap's
+  // line drawn underneath while the new lap fills in — looks like the
+  // two laps are overlaid.
+  const chartKey = `${effectiveRef}-${currentLap ?? "x"}`;
+
   return (
     <div className="grid h-full grid-cols-[1fr_1fr_220px] divide-x divide-foreground/10 text-xs">
       <ChartCell title="Throttle / Brake">
         <ResponsiveContainer width="100%" height="100%">
-          <AreaChart data={trace} margin={{ top: 8, right: 8, left: 4, bottom: 4 }}>
+          <AreaChart key={chartKey} data={trace} margin={{ top: 8, right: 8, left: 4, bottom: 4 }}>
             <defs>
               <linearGradient id="ql-thr" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="0%" stopColor="#10b981" stopOpacity={0.55} />
@@ -165,9 +177,9 @@ function QualiTelemetryPanelInner({ raceData, frameIdx, lapIndex, qualiSegment =
         </ResponsiveContainer>
       </ChartCell>
 
-      <ChartCell title="Speed / Gear">
+      <ChartCell title="Speed / Gear / ERS (est.)">
         <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={trace} margin={{ top: 8, right: 8, left: 4, bottom: 4 }}>
+          <LineChart key={chartKey} data={trace} margin={{ top: 8, right: 8, left: 4, bottom: 4 }}>
             <CartesianGrid stroke="rgba(255,255,255,0.06)" />
             <XAxis
               dataKey="d"
@@ -187,14 +199,29 @@ function QualiTelemetryPanelInner({ raceData, frameIdx, lapIndex, qualiSegment =
               domain={[0, "dataMax"]}
             />
             <YAxis
-              yAxisId="gear"
+              yAxisId="ers"
               orientation="right"
-              stroke="rgba(255,255,255,0.4)"
-              tick={{ fontSize: 9 }}
-              width={20}
-              domain={[0, 8]}
+              stroke="rgba(34,211,238,0.55)"
+              tick={{ fontSize: 9, fill: "rgba(34,211,238,0.7)" }}
+              width={26}
+              domain={[0, 100]}
+              tickFormatter={(v) => `${v}%`}
             />
-            <Tooltip contentStyle={chartTooltipStyle} />
+            {/* Hidden axis for gear — keeps the chart visually clean (no
+                extra ticks) while letting the gear step-line render. The
+                value still appears in the tooltip and the line itself
+                shows on hover. */}
+            <YAxis yAxisId="gear" hide domain={[0, 8]} />
+            <Tooltip
+              contentStyle={chartTooltipStyle}
+              formatter={(value: number, name: string) => {
+                if (name === "Gear") return [value, "Gear"];
+                if (name === "Speed (kph)") return [Math.round(value), "Speed (kph)"];
+                if (name === "ERS (est. %)") return [`${value.toFixed(1)}%`, "ERS (est.)"];
+                return [value, name];
+              }}
+              labelFormatter={(v) => `${Math.round(Number(v))} m`}
+            />
             <Line
               yAxisId="spd"
               type="monotone"
@@ -206,10 +233,20 @@ function QualiTelemetryPanelInner({ raceData, frameIdx, lapIndex, qualiSegment =
               name="Speed (kph)"
             />
             <Line
+              yAxisId="ers"
+              type="monotone"
+              dataKey="ers"
+              stroke="#22d3ee"
+              strokeWidth={1.25}
+              dot={false}
+              isAnimationActive={false}
+              name="ERS (est. %)"
+            />
+            <Line
               yAxisId="gear"
               type="stepAfter"
               dataKey="gear"
-              stroke="#a3a3a3"
+              stroke="rgba(255,255,255,0.35)"
               strokeWidth={1}
               dot={false}
               isAnimationActive={false}
@@ -484,12 +521,27 @@ function extractActiveLap(
       gear: s.gear ?? null,
       thr: s.thr ?? null,
       brk: s.brk ?? null,
+      ers: null,
     });
   }
   // Keep the trace strictly time-ordered. d is already monotonic within
   // a single lap unless the projection produced a wrap-around kink at
   // the start/finish line — handled by a single ascending sort.
   rows.sort((a, b) => a.d - b.d);
+  // Estimated ERS state-of-charge across the lap. Starts at 100 % at the
+  // line, drains under throttle (deployment), recovers under braking
+  // (MGU-K regen). The coefficients are eyeballed for visual plausibility,
+  // not engineered — F1's broadcast feed doesn't carry real SOC so this is
+  // explicitly an "estimate" and is labelled as such in the UI.
+  let soc = 100;
+  const DEPLOY_PER_PCT = 0.018; // 100 % throttle drains ~1.8 %/tick
+  const REGEN_PER_PCT = 0.024; // 100 % brake recovers ~2.4 %/tick
+  for (const r of rows) {
+    if (r.thr != null) soc -= r.thr * DEPLOY_PER_PCT;
+    if (r.brk != null) soc += r.brk * REGEN_PER_PCT;
+    soc = Math.max(0, Math.min(100, soc));
+    r.ers = soc;
+  }
   // Lap-start time = the t of the first frame in this lap range.
   const lapStartT = frames[range.startIdx]?.t ?? null;
   return {
