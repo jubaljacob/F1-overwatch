@@ -1,0 +1,67 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+.python-version
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Next.js
+.next/
+out/
+.turbo/
+
+# Build artefacts
+dist/
+build/
+*.tsbuildinfo
+
+# Env
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# FastF1 cache and precomputed telemetry — never commit
+.fastf1-cache/
+apps/api/.fastf1-cache/
+.racedata-cache/
+apps/api/.racedata-cache/
+precomputed/
+*.parquet
+
+# Claude Code local state
+.claude/
+
+# Scratch
+image.png
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# Coverage
+coverage/
+.coverage
+htmlcov/
+
+# Docker volumes
+.docker-data/
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# uv
+uv.lock
