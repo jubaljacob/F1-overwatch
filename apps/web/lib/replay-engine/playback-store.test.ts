@@ -55,6 +55,7 @@ describe("usePlaybackStore", () => {
       speed: 1,
       selectedDrivers: [],
       referenceDriver: null,
+      followedDriver: null,
     });
   });
 
@@ -159,5 +160,28 @@ describe("usePlaybackStore", () => {
     s.setRaceData(makeRaceData([0, 1, 2]));
     expect(usePlaybackStore.getState().selectedDrivers).toEqual([]);
     expect(usePlaybackStore.getState().referenceDriver).toBeNull();
+  });
+
+  it("toggleFollowedDriver toggles between a driver and null", () => {
+    const s = usePlaybackStore.getState();
+    s.toggleFollowedDriver(44);
+    expect(usePlaybackStore.getState().followedDriver).toBe(44);
+    s.toggleFollowedDriver(44);
+    expect(usePlaybackStore.getState().followedDriver).toBeNull();
+  });
+
+  it("toggleFollowedDriver switches target rather than clearing", () => {
+    const s = usePlaybackStore.getState();
+    s.toggleFollowedDriver(44);
+    s.toggleFollowedDriver(1);
+    // 1 differs from current (44) so this is a re-target, not a clear.
+    expect(usePlaybackStore.getState().followedDriver).toBe(1);
+  });
+
+  it("setRaceData clears followed driver", () => {
+    const s = usePlaybackStore.getState();
+    s.toggleFollowedDriver(44);
+    s.setRaceData(makeRaceData([0, 1, 2]));
+    expect(usePlaybackStore.getState().followedDriver).toBeNull();
   });
 });

@@ -25,6 +25,10 @@ interface PlaybackState {
   /** Reference for relative views and the eventual P6 follow-camera target.
    *  Must be a member of `selectedDrivers` or `null`. */
   referenceDriver: number | null;
+  /** Driver the 3D viewer's follow-camera is locked to. `null` = free
+   *  orbit. Settable independently of `selectedDrivers` so the user can
+   *  follow anyone without disturbing the analytics selection. */
+  followedDriver: number | null;
   setRaceData: (data: RaceData) => void;
   play: () => void;
   pause: () => void;
@@ -36,6 +40,8 @@ interface PlaybackState {
   toggleSelectedDriver: (n: number) => void;
   setReferenceDriver: (n: number) => void;
   clearSelection: () => void;
+  setFollowedDriver: (n: number | null) => void;
+  toggleFollowedDriver: (n: number) => void;
   reset: () => void;
   tick: (dtSeconds: number) => void;
 }
@@ -47,6 +53,7 @@ export const usePlaybackStore = create<PlaybackState>((set, get) => ({
   speed: 1,
   selectedDrivers: [],
   referenceDriver: null,
+  followedDriver: null,
 
   setRaceData: (data) =>
     set({
@@ -55,6 +62,7 @@ export const usePlaybackStore = create<PlaybackState>((set, get) => ({
       isPlaying: false,
       selectedDrivers: [],
       referenceDriver: null,
+      followedDriver: null,
     }),
 
   play: () => {
@@ -130,6 +138,10 @@ export const usePlaybackStore = create<PlaybackState>((set, get) => ({
     set((s) => (s.selectedDrivers.includes(n) ? { referenceDriver: n } : {})),
 
   clearSelection: () => set({ selectedDrivers: [], referenceDriver: null }),
+
+  setFollowedDriver: (n) => set({ followedDriver: n }),
+  toggleFollowedDriver: (n) =>
+    set((s) => ({ followedDriver: s.followedDriver === n ? null : n })),
 
   reset: () => {
     const { raceData } = get();

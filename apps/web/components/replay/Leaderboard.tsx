@@ -70,26 +70,41 @@ export function Leaderboard({ raceData, frame }: Props) {
         </div>
       </div>
       <ol className="divide-foreground/10 flex-1 divide-y overflow-y-auto">
-        {rows.map((r) => (
-          <LeaderboardRowView
-            key={r.driver.number}
-            row={r}
-            extras={extras.get(r.driver.number)}
-            isSelected={selected.includes(r.driver.number)}
-            isReference={effectiveReference === r.driver.number}
-            anySelected={anySelected}
-            onToggle={() => toggleSelected(r.driver.number)}
-            onSetReference={() => setReference(r.driver.number)}
-          />
-        ))}
+        {rows.map((r) => {
+          const sample = frame?.p?.[String(r.driver.number)];
+          return (
+            <LeaderboardRowView
+              key={r.driver.number}
+              row={r}
+              extras={extras.get(r.driver.number)}
+              telemetry={
+                sample
+                  ? { speed: sample.spd, gear: sample.gear ?? null, drs: !!sample.drs }
+                  : null
+              }
+              isSelected={selected.includes(r.driver.number)}
+              isReference={effectiveReference === r.driver.number}
+              anySelected={anySelected}
+              onToggle={() => toggleSelected(r.driver.number)}
+              onSetReference={() => setReference(r.driver.number)}
+            />
+          );
+        })}
       </ol>
     </div>
   );
 }
 
+interface RowTelemetry {
+  speed: number;
+  gear: number | null;
+  drs: boolean;
+}
+
 interface RowProps {
   row: LeaderboardRow;
   extras: DriverExtras | undefined;
+  telemetry: RowTelemetry | null;
   isSelected: boolean;
   isReference: boolean;
   anySelected: boolean;
@@ -100,6 +115,7 @@ interface RowProps {
 function LeaderboardRowView({
   row: r,
   extras,
+  telemetry,
   isSelected,
   isReference,
   anySelected,
@@ -124,7 +140,7 @@ function LeaderboardRowView({
         }`}
         style={{
           display: "grid",
-          gridTemplateColumns: "32px 96px 104px 116px 90px 76px",
+          gridTemplateColumns: "32px 96px 104px 116px 90px 92px",
           alignItems: "center",
           gap: "8px",
           padding: "6px 8px",
@@ -208,9 +224,10 @@ function LeaderboardRowView({
           )}
         </div>
 
-        {/* Sector bars + status pills */}
+        {/* Sector bars + live telemetry + status pills */}
         <div className="flex flex-col items-end gap-0.5">
           <SectorBars status={extras?.sectorStatus} />
+          {telemetry && r.status !== "out" && <TelemetryStrip tel={telemetry} />}
           {r.status === "pit" && (
             <span className="rounded bg-amber-500/20 px-1 py-px text-[9px] uppercase tracking-widest text-amber-300">
               PIT
@@ -240,6 +257,36 @@ function LeaderboardRowView({
         </button>
       )}
     </li>
+  );
+}
+
+/** Tight live-telemetry strip: speed · gear · DRS chip. Updates on each
+ *  playback frame so the leaderboard row doubles as a per-driver
+ *  micro-readout without bloating layout. */
+function TelemetryStrip({ tel }: { tel: RowTelemetry }) {
+  return (
+    <div className="flex items-center gap-1 text-[9px] tabular-nums leading-none">
+      <span className="text-foreground/80">{Math.round(tel.speed)}</span>
+      <span className="text-muted-foreground">kph</span>
+      {tel.gear != null && tel.gear > 0 && (
+        <span
+          className="text-foreground/70 ml-0.5"
+          title={`Gear ${tel.gear}`}
+        >
+          G{tel.gear}
+        </span>
+      )}
+      <span
+        className={`ml-0.5 rounded px-1 py-px text-[8px] font-semibold uppercase tracking-widest ${
+          tel.drs
+            ? "bg-emerald-500/30 text-emerald-200"
+            : "text-foreground/25"
+        }`}
+        title={tel.drs ? "DRS open" : "DRS closed"}
+      >
+        DRS
+      </span>
+    </div>
   );
 }
 
