@@ -1,12 +1,34 @@
 @import "tailwindcss";
 
 @theme {
-  --color-background: #0a0a0a;
-  --color-foreground: #fafafa;
-  --color-muted: #1a1a1a;
+  /* F1Overwatch core palette. */
+  --color-warm-red: #ff1e00;        /* primary accent, CTAs, headers */
+  --color-carbon: #15151e;          /* primary background, text */
+  --color-carbon-deep: #0a0a12;     /* deeper background for layering */
+  --color-hi-vis: #ffffff;          /* on-dark text + accents */
+  --color-off-white: #f8f8f8;       /* subtle light backgrounds (pill cards) */
+
+  /* Stat-tile accent colors used on the race-detail pill cards. */
+  --color-tile-yellow: #ffd400;
+  --color-tile-green: #00a661;
+  --color-tile-blue: #1f3df0;
+  --color-tile-orange: #ff5a1f;
+
+  /* Aliases used across the existing app. Kept for back-compat with components
+     written before the rebrand. */
+  --color-background: var(--color-carbon);
+  --color-foreground: var(--color-hi-vis);
+  --color-muted: #1a1a24;
   --color-muted-foreground: #a1a1aa;
-  --color-accent: #e10600; /* F1 red — public reference colour */
-  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --color-accent: var(--color-warm-red);
+
+  /* Typography. Inter is the closest readily-available match to the heavy
+     condensed display face in the inspo set; we lean on weight + tracking to
+     get the same energy. */
+  --font-sans:
+    "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-display:
+    "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
 
 html,
@@ -14,4 +36,18 @@ body {
   background: var(--color-background);
   color: var(--color-foreground);
   font-family: var(--font-sans);
+  /* Subtle vignette gives the dark surfaces depth instead of flat black. */
+  background-image:
+    radial-gradient(
+      ellipse at 50% -20%,
+      rgba(255, 30, 0, 0.08),
+      transparent 60%
+    ),
+    radial-gradient(ellipse at 100% 100%, rgba(31, 61, 240, 0.04), transparent 50%);
+}
+
+/* Number columns (countdown, points) use tabular figures so digits don't
+   reflow as values change. */
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
 }

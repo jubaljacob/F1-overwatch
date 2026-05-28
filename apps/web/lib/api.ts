@@ -1,7 +1,9 @@
 import type {
   RaceData,
+  RaceResultsPayload,
   RankedStrategy,
   SampleLap,
+  SeasonPayload,
   SessionMeta,
   SimulationOut,
   Strategy,
@@ -30,6 +32,23 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     throw new Error(`API ${path} failed: ${res.status} ${res.statusText}${detail}`);
   }
   return (await res.json()) as T;
+}
+
+export function getSeason(year: number) {
+  // Live season data from the backend (Jolpi-backed). Standings change
+  // race-to-race, so the backend caches for 1h; this fetch can be hit on
+  // every landing render without DoSing upstream.
+  return request<SeasonPayload>(`/seasons/${year}`);
+}
+
+export function getRaceResults(year: number, round: number) {
+  return request<RaceResultsPayload>(`/seasons/${year}/${round}/results`);
+}
+
+/** Returns `{round: ["R", "Q", ...]}` describing every cached session type
+ *  per round for this year. Empty map = nothing cached yet. */
+export function getCachedRounds(year: number) {
+  return request<Record<string, string[]>>(`/seasons/${year}/cached`);
 }
 
 export function getSession(year: number, round: number, sessionType = "R") {
