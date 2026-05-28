@@ -48,6 +48,13 @@ class CircuitGeometry(BaseModel):
     cumulative_distance: list[float] = Field(
         ..., description="Cumulative distance along centreline, same length as centreline"
     )
+    elevation: list[float] = Field(
+        default_factory=list,
+        description=(
+            "P6: track elevation (Z) per centreline vertex. Parallel to "
+            "`centreline`; empty when source data has no Z column."
+        ),
+    )
 
 
 class DriverSample(BaseModel):
@@ -72,6 +79,9 @@ class Frame(BaseModel):
     )
 
 
+QualiSegment = Literal["Q1", "Q2", "Q3"]
+
+
 class LapRecord(BaseModel):
     driver: int = Field(..., description="Driver number")
     lap: int
@@ -83,6 +93,43 @@ class LapRecord(BaseModel):
     tyre_age: int | None = None
     pit_in: bool = False
     pit_out: bool = False
+    quali_segment: QualiSegment | None = Field(
+        None,
+        description=(
+            "Which qualifying segment (Q1/Q2/Q3) this lap was set in. "
+            "Always None for non-qualifying sessions."
+        ),
+    )
+
+
+TrackStatus = Literal["green", "yellow", "sc", "vsc", "red"]
+
+
+class TrackStatusEvent(BaseModel):
+    """One step in the track-status timeline.
+
+    `t` is session-time at which the status becomes active; it remains
+    active until the next event in the list (or end-of-session). Codes
+    are normalised from FastF1's raw integer set:
+        1 → green   2 → yellow   4 → sc   5 → red   6/7 → vsc
+    Unknown codes are dropped from the timeline rather than passed
+    through, so consumers never see surprise enum values.
+    """
+
+    t: float
+    status: TrackStatus
+
+
+class WeatherSummary(BaseModel):
+    """Aggregate weather across the session — single snapshot suitable for
+    a small header widget. Fine-grained per-lap weather can be added later
+    if a chart needs it."""
+
+    air_temp_c: float | None = None
+    track_temp_c: float | None = None
+    humidity_pct: float | None = None
+    rainfall: bool = False
+    wind_speed_kph: float | None = None
 
 
 class RaceDataMeta(BaseModel):
@@ -107,6 +154,14 @@ class RaceDataMeta(BaseModel):
     # start rather than at the start of the recorded data (which includes
     # the pre-race grid-walk / formation lap, where order is meaningless).
     race_start_t: float | None = None
+    weather: WeatherSummary | None = None
+    track_status: list[TrackStatusEvent] = Field(
+        default_factory=list,
+        description=(
+            "Ordered timeline of track-status changes from FastF1. Empty "
+            "for sessions where status data is unavailable."
+        ),
+    )
 
 
 class RaceData(BaseModel):

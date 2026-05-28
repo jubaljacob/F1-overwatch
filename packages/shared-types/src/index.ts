@@ -35,6 +35,9 @@ export interface CircuitGeometry {
   track_length_m: number;
   centreline: [number, number][];
   cumulative_distance: number[];
+  /** P6: track elevation (Z) per centreline vertex. Parallel to centreline;
+   *  empty array when the source data has no Z column. */
+  elevation?: number[];
 }
 
 export interface DriverSample {
@@ -57,6 +60,8 @@ export interface Frame {
   p: Record<string, DriverSample>;
 }
 
+export type QualiSegment = "Q1" | "Q2" | "Q3";
+
 export interface LapRecord {
   driver: number;
   lap: number;
@@ -68,6 +73,24 @@ export interface LapRecord {
   tyre_age: number | null;
   pit_in: boolean;
   pit_out: boolean;
+  /** Q-session only. Which segment this lap was set in. Null for race /
+   *  sprint / FP sessions. */
+  quali_segment?: QualiSegment | null;
+}
+
+export type TrackStatus = "green" | "yellow" | "sc" | "vsc" | "red";
+
+export interface TrackStatusEvent {
+  t: number;
+  status: TrackStatus;
+}
+
+export interface WeatherSummary {
+  air_temp_c: number | null;
+  track_temp_c: number | null;
+  humidity_pct: number | null;
+  rainfall: boolean;
+  wind_speed_kph: number | null;
 }
 
 export interface RaceDataMeta {
@@ -88,6 +111,8 @@ export interface RaceDataMeta {
    *  Used to baseline the position-change arrow at race start rather than
    *  at the start of the recorded data (where order is meaningless). */
   race_start_t?: number | null;
+  weather?: WeatherSummary | null;
+  track_status?: TrackStatusEvent[];
 }
 
 export interface RaceData {

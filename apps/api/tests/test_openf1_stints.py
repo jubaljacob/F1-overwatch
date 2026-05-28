@@ -84,7 +84,13 @@ def test_build_lap_records_populates_compound_and_age() -> None:
         stint(1, 1, 1, 8, "MEDIUM", 0),
         stint(1, 2, 9, 30, "HARD", 0),
     ]
-    records = _build_lap_records_openf1(laps_raw, stints_raw)
+    # session_type="R" → quali classification skipped; t0 is unused when
+    # there are no quali laps, so any datetime works.
+    from datetime import datetime, timezone
+
+    records = _build_lap_records_openf1(
+        laps_raw, stints_raw, "R", datetime(2024, 1, 1, tzinfo=timezone.utc)
+    )
     by_lap = {r.lap: r for r in records}
     assert by_lap[1].compound == "MEDIUM" and by_lap[1].tyre_age == 1
     assert by_lap[2].compound == "MEDIUM" and by_lap[2].tyre_age == 2

@@ -138,6 +138,28 @@ class OpenF1Client:
         """
         return self.get("/stints", session_key=session_key, driver_number=driver_number)
 
+    def weather(self, session_key: int) -> list[dict[str, Any]]:
+        """Session weather samples. Each row: air_temperature, track_temperature,
+        humidity, pressure, rainfall, wind_speed, wind_direction, date."""
+        return self.get("/weather", session_key=session_key)
+
+    def race_control(self, session_key: int) -> list[dict[str, Any]]:
+        """Race-control timeline: flags, safety-car deployments, VSC, etc.
+        One row per event; rows are not deduped — adjacent same-status events
+        do occur (e.g., SC deployed twice during a long caution period)."""
+        return self.get("/race_control", session_key=session_key)
+
+    def car_data(
+        self, session_key: int, driver_number: int | None = None
+    ) -> list[dict[str, Any]]:
+        """Per-driver telemetry: speed, n_gear, throttle, brake, drs, rpm.
+
+        Volume warning: full-session pulls can be 50MB+ per driver at 4 Hz
+        native rate. The loader paginates by driver to keep memory bounded
+        and processes each driver's payload before fetching the next.
+        """
+        return self.get("/car_data", session_key=session_key, driver_number=driver_number)
+
 
 def resolve_session_key(
     client: OpenF1Client,

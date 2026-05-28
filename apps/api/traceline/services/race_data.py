@@ -22,8 +22,11 @@ from traceline.schemas.session import (
     DriverSample,
     Frame,
     LapRecord,
+    QualiSegment,
     RaceData,
     RaceDataMeta,
+    TrackStatusEvent,
+    WeatherSummary,
 )
 from traceline.services import fastf1_loader
 
@@ -37,14 +40,17 @@ CENTRELINE_TARGET_POINTS = 1500
 # Pre-race lead-in clipped off the front of the replay. Leaves enough for the
 # formation-lap roll-out and lights without dragging viewers through the long
 # parc-fermé / grid-walk window where nothing is moving.
-PRE_RACE_LEAD_IN_S = 8 * 60.0
+# Playback starts exactly 7 min 40 s before lap 1 so users land on the
+# formation lap / grid build rather than several quiet minutes of cars
+# in the pits. 460 s is the F1 broadcast convention for "race window".
+PRE_RACE_LEAD_IN_S = 7 * 60.0 + 40.0
 
 
 def compute_race_data(year: int, round_: int, session_type: str = "R") -> RaceData:
     session = fastf1_loader.load_session(year, round_, session_type, with_telemetry=True)
     drivers = fastf1_loader.get_session_meta(year, round_, session_type).drivers
 
-    centreline_xy, cum_dist = _build_centreline(session)
+    centreline_xy, cum_dist, centreline_z = _build_centreline(session)
     track_len_m = float(cum_dist[-1]) if len(cum_dist) else 0.0
     tree = cKDTree(centreline_xy) if len(centreline_xy) else None
 
@@ -72,8 +78,10 @@ def compute_race_data(year: int, round_: int, session_type: str = "R") -> RaceDa
         per_driver[int(arrs["number"])] = arrs
 
     frames = _assemble_frames(times, per_driver)
-    laps = _build_lap_records(session)
+    laps = _build_lap_records(session, session_type)
     race_end_t, classification = _extract_race_end(session)
+    weather = _extract_weather(session)
+    track_status = _extract_track_status(session)
 
     return RaceData(
         meta=RaceDataMeta(
@@ -88,6 +96,8 @@ def compute_race_data(year: int, round_: int, session_type: str = "R") -> RaceDa
             race_end_t=race_end_t,
             final_classification=classification,
             race_start_t=race_start,
+            weather=weather,
+            track_status=track_status,
         ),
         drivers=drivers,
         circuit=CircuitGeometry(
@@ -95,6 +105,7 @@ def compute_race_data(year: int, round_: int, session_type: str = "R") -> RaceDa
             track_length_m=track_len_m,
             centreline=[(float(p[0]), float(p[1])) for p in centreline_xy],
             cumulative_distance=[float(d) for d in cum_dist],
+            elevation=[float(v) for v in centreline_z],
         ),
         frames=frames,
         laps=laps,
@@ -104,34 +115,42 @@ def compute_race_data(year: int, round_: int, session_type: str = "R") -> RaceDa
 # --- centreline ------------------------------------------------------------
 
 
-def _build_centreline(session) -> tuple[np.ndarray, np.ndarray]:
+def _build_centreline(session) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Use the session's overall fastest lap position trail as the centreline.
 
-    Good enough for P1 leaderboarding; P2 swaps in a calibrated centreline.
+    Returns (xy [N,2], cum_dist [N], elevation [N]). Elevation is the Z
+    column from the fastest lap's pos_data when available, else zeros —
+    the P6 viewer reads this for the 3D ribbon. Good enough for P1
+    leaderboarding; P2 swaps in a calibrated centreline.
     """
     try:
         fastest = session.laps.pick_fastest()
         pos = fastest.get_pos_data()
     except Exception as e:
         logger.warning("Centreline fallback (no fastest lap pos): %s", e)
-        return np.empty((0, 2)), np.empty(0)
+        return np.empty((0, 2)), np.empty(0), np.empty(0)
 
     xy = pos[["X", "Y"]].to_numpy(dtype=float)
-    xy = xy[~np.isnan(xy).any(axis=1)]
+    z = pos["Z"].to_numpy(dtype=float) if "Z" in pos.columns else np.zeros(len(xy))
+    valid = ~np.isnan(xy).any(axis=1)
+    xy = xy[valid]
+    z = z[valid]
     if len(xy) < 2:
-        return np.empty((0, 2)), np.empty(0)
+        return np.empty((0, 2)), np.empty(0), np.empty(0)
 
     # Downsample by stride so very dense laps don't blow up the payload.
     stride = max(1, len(xy) // CENTRELINE_TARGET_POINTS)
     xy = xy[::stride]
+    z = z[::stride]
 
     # Close the loop so the projection wraps cleanly across the start/finish.
     if not np.allclose(xy[0], xy[-1]):
         xy = np.vstack([xy, xy[0]])
+        z = np.concatenate([z, z[:1]])
 
     segs = np.linalg.norm(np.diff(xy, axis=0), axis=1)
     cum = np.concatenate(([0.0], np.cumsum(segs)))
-    return xy, cum
+    return xy, cum, z
 
 
 # --- resampling ------------------------------------------------------------
@@ -523,13 +542,27 @@ def _assemble_frames(times: np.ndarray, per_driver: dict[int, _DriverArrays]) ->
 # --- laps ------------------------------------------------------------------
 
 
-def _build_lap_records(session) -> list[LapRecord]:
+def _build_lap_records(session, session_type: str) -> list[LapRecord]:
     out: list[LapRecord] = []
     try:
         laps = session.laps
     except Exception:
         return out
-    for _, lap in laps.iterrows():
+
+    # For Q / SQ sessions, prefer the race-control chequered-flag
+    # timestamps as the authoritative segment boundaries. Fall back to the
+    # lap-gap heuristic if race control data is missing or unparseable.
+    quali_by_index: dict[int, QualiSegment] = {}
+    if session_type in ("Q", "SQ"):
+        boundaries = _quali_boundaries_from_race_control_fastf1(session)
+        if len(boundaries) >= 2:
+            quali_by_index = _classify_quali_segments_by_boundaries_fastf1(
+                laps, boundaries
+            )
+        else:
+            quali_by_index = _classify_quali_segments(laps, session_type)
+
+    for idx, (_, lap) in enumerate(laps.iterrows()):
         try:
             driver_num = int(lap["DriverNumber"])
         except (KeyError, ValueError, TypeError):
@@ -546,9 +579,213 @@ def _build_lap_records(session) -> list[LapRecord]:
                 tyre_age=_int_or_none(lap.get("TyreLife")),
                 pit_in=pd.notna(lap.get("PitInTime")),
                 pit_out=pd.notna(lap.get("PitOutTime")),
+                quali_segment=quali_by_index.get(idx),
             )
         )
     return out
+
+
+# Safety floor for an inter-segment break — well below the real Q1→Q2
+# (~7 min) and Q2→Q3 (~8 min) breaks, but well above any plausible
+# within-segment lull. Combined with the "top-2 biggest gaps" selector
+# below, this rejects spurious breaks at low-action moments and stops
+# over-promoting drivers into a higher segment than they ran in.
+_MIN_QUALI_BREAK_S = 180.0
+
+
+def _quali_boundaries_from_race_control_fastf1(session) -> list[float]:
+    """Find Q1/Q2 end timestamps from FastF1's race-control message stream.
+
+    FastF1 exposes `session.race_control_messages` with a `Flag` column
+    that contains "CHEQUERED" at the end of each quali segment. We return
+    the first two chequered timestamps in seconds-from-session-start;
+    callers fall back to the lap-gap heuristic if fewer than 2 are found.
+    """
+    try:
+        rc = session.race_control_messages
+    except Exception:
+        return []
+    if rc is None or rc.empty:
+        return []
+    try:
+        # FastF1 stores Time as a Timedelta from session start.
+        mask = rc["Flag"].astype(str).str.upper() == "CHEQUERED"
+        if not mask.any():
+            return []
+        times = rc.loc[mask, "Time"].dt.total_seconds().to_numpy()
+    except Exception:
+        return []
+    times = sorted(float(t) for t in times if t == t)  # drop NaN
+    # First two are Q1- and Q2-end; the third is session end.
+    return times[:2]
+
+
+def _classify_quali_segments_by_boundaries_fastf1(
+    laps, boundaries: list[float]
+) -> dict[int, QualiSegment]:
+    """Bucket each lap row by LapStartTime vs the two segment boundaries."""
+    if len(boundaries) < 2 or laps is None or laps.empty:
+        return {}
+    try:
+        starts = laps["LapStartTime"].dt.total_seconds().to_numpy()
+    except Exception:
+        return {}
+    b1, b2 = boundaries[0], boundaries[1]
+    out: dict[int, QualiSegment] = {}
+    for i, t in enumerate(starts):
+        if np.isnan(t):
+            continue
+        if t < b1:
+            out[i] = "Q1"
+        elif t < b2:
+            out[i] = "Q2"
+        else:
+            out[i] = "Q3"
+    return out
+
+
+def _classify_quali_segments(laps, session_type: str) -> dict[int, QualiSegment]:
+    """Bucket each lap row into Q1/Q2/Q3 by finding the **two largest**
+    gaps in the sorted lap-start timeline. Robust to within-segment
+    lulls that the old "any gap > threshold" heuristic would have
+    misclassified as breaks (which led to Q3 reporting 15 drivers when
+    only 10 actually participated).
+
+    Returns an empty dict for non-qualifying sessions and for any
+    session where lap-start times are missing or sparse.
+    """
+    if session_type not in ("Q", "SQ"):
+        return {}
+    if laps is None or laps.empty:
+        return {}
+    try:
+        starts = laps["LapStartTime"].dt.total_seconds().to_numpy()
+    except Exception:
+        return {}
+    valid_mask = ~np.isnan(starts)
+    if not valid_mask.any():
+        return {}
+
+    sorted_order = np.argsort(np.where(valid_mask, starts, np.inf))
+    valid_count = int(valid_mask.sum())
+    sorted_order = sorted_order[:valid_count]
+    sorted_starts = starts[sorted_order]
+
+    if valid_count < 2:
+        return {int(sorted_order[0]): "Q1"} if valid_count == 1 else {}
+
+    gaps = np.diff(sorted_starts)
+    # Candidate breaks must clear the safety floor.
+    eligible_indices = np.where(gaps >= _MIN_QUALI_BREAK_S)[0]
+    if len(eligible_indices) > 0:
+        # Of the eligible candidates, keep the two biggest.
+        eligible_sizes = gaps[eligible_indices]
+        order = np.argsort(eligible_sizes)[::-1][:2]
+        break_positions = np.sort(eligible_indices[order])
+    else:
+        break_positions = np.array([], dtype=int)
+
+    seg_for_position = np.full(valid_count, "Q1", dtype=object)
+    for current, br in enumerate(break_positions, start=1):
+        cursor = int(br) + 1
+        label = ("Q1", "Q2", "Q3")[min(current, 2)]
+        seg_for_position[cursor:] = label
+
+    out: dict[int, QualiSegment] = {}
+    for pos, row_idx in enumerate(sorted_order):
+        seg = str(seg_for_position[pos])
+        if seg in ("Q1", "Q2", "Q3"):
+            out[int(row_idx)] = seg  # type: ignore[assignment]
+    return out
+
+
+# FastF1 track-status codes. See fastf1.api.track_status_data — the raw
+# `Status` column is a stringified int. We collapse 6 + 7 (VSC deployed +
+# VSC ending) into a single "vsc" bucket because the UI only cares whether
+# VSC is active, not the precise transition phase. Any code outside this
+# table is dropped from the timeline rather than surfaced as an unknown
+# enum, so the frontend never sees a status it can't render.
+_TRACK_STATUS_MAP: dict[str, str] = {
+    "1": "green",
+    "2": "yellow",
+    "4": "sc",
+    "5": "red",
+    "6": "vsc",
+    "7": "vsc",
+}
+
+
+def _extract_track_status(session) -> list[TrackStatusEvent]:
+    """Build the ordered (t, status) timeline from session.track_status.
+
+    Adjacent duplicate statuses are collapsed so the frontend doesn't see
+    redundant transitions (FastF1 sometimes emits 6→7→6 within seconds at
+    the VSC end, which would otherwise spam the status banner).
+    """
+    try:
+        ts = session.track_status
+    except Exception:
+        return []
+    if ts is None or len(ts) == 0:
+        return []
+
+    try:
+        times = ts["Time"].dt.total_seconds().to_numpy(dtype=float)
+        codes = ts["Status"].astype(str).to_numpy()
+    except Exception:
+        return []
+
+    out: list[TrackStatusEvent] = []
+    last_status: str | None = None
+    for raw_t, raw_code in zip(times, codes, strict=True):
+        if pd.isna(raw_t):
+            continue
+        status = _TRACK_STATUS_MAP.get(str(raw_code).strip())
+        if status is None:
+            continue
+        if status == last_status:
+            continue
+        out.append(TrackStatusEvent(t=float(raw_t), status=status))  # type: ignore[arg-type]
+        last_status = status
+    return out
+
+
+def _extract_weather(session) -> WeatherSummary | None:
+    """Aggregate session.weather_data into a single header-friendly summary.
+
+    FastF1's weather is a DataFrame sampled at coarse intervals across the
+    session. For a header widget we want one number per metric — the mean
+    is fine for temps and humidity, any-true for rainfall (a single wet
+    sample is enough to flag the session as having rain)."""
+    try:
+        wx = session.weather_data
+    except Exception:
+        return None
+    if wx is None or len(wx) == 0:
+        return None
+
+    def _mean(col: str) -> float | None:
+        if col not in wx.columns:
+            return None
+        s = pd.to_numeric(wx[col], errors="coerce").dropna()
+        if s.empty:
+            return None
+        return round(float(s.mean()), 1)
+
+    rainfall = False
+    if "Rainfall" in wx.columns:
+        try:
+            rainfall = bool(wx["Rainfall"].astype(bool).any())
+        except Exception:
+            rainfall = False
+
+    return WeatherSummary(
+        air_temp_c=_mean("AirTemp"),
+        track_temp_c=_mean("TrackTemp"),
+        humidity_pct=_mean("Humidity"),
+        rainfall=rainfall,
+        wind_speed_kph=_mean("WindSpeed"),
+    )
 
 
 def _extract_race_end(session) -> tuple[float | None, dict[int, int] | None]:
