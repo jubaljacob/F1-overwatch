@@ -126,6 +126,16 @@ class OpenF1Client:
                     )
                     time.sleep(delay)
                     continue
+                if resp.status_code == 404:
+                    # OpenF1 returns 404 for "no rows match this query"
+                    # (e.g. /location for a driver that didn't run in this
+                    # session). Treat as an empty result rather than an
+                    # error — the loader skips drivers with no data, so a
+                    # single 404 shouldn't fail the whole build.
+                    logger.info("OpenF1 %s 404 (no data) — returning empty", path)
+                    if cache_path is not None:
+                        _write_cache(cache_path, [])
+                    return []
                 if resp.status_code >= 500:
                     raise httpx.HTTPStatusError(
                         f"server error {resp.status_code}",
@@ -304,13 +314,23 @@ def resolve_session_key(
     meetings = client.meetings(year)
     if not meetings:
         raise OpenF1Error(f"OpenF1 returned no meetings for {year}")
-    # Date-sort defensively in case OpenF1 ever changes ordering.
-    meetings_sorted = sorted(meetings, key=lambda m: m.get("date_start", ""))
-    if round_ < 1 or round_ > len(meetings_sorted):
+    # OpenF1's meetings list mixes in pre-season testing AND keeps cancelled
+    # weekends in place (e.g. the 2026 Saudi GP). F1 round numbers only count
+    # actually-run championship weekends, so we strip both before indexing.
+    # Without this, round=5 in 2026 would resolve to cancelled Saudi Arabia
+    # and the loader would fail with "no telemetry frames".
+    races_only = [
+        m
+        for m in meetings
+        if "test" not in str(m.get("meeting_name", "")).lower()
+        and not m.get("is_cancelled")
+    ]
+    races_sorted = sorted(races_only, key=lambda m: m.get("date_start", ""))
+    if round_ < 1 or round_ > len(races_sorted):
         raise OpenF1Error(
-            f"round {round_} out of range for {year} (have {len(meetings_sorted)} meetings)"
+            f"round {round_} out of range for {year} (have {len(races_sorted)} race meetings)"
         )
-    meeting = meetings_sorted[round_ - 1]
+    meeting = races_sorted[round_ - 1]
     meeting_key = meeting["meeting_key"]
     sessions = client.sessions(meeting_key=meeting_key, session_name=session_name)
     if not sessions:

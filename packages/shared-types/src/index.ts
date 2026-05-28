@@ -179,3 +179,58 @@ export interface RankedStrategy {
   strategy: Strategy;
   result: SimulationOut;
 }
+
+// --- Live season payload (Jolpi-backed) -----------------------------------
+
+export interface ScheduleRace {
+  round: number;
+  name: string;
+  location: string;
+  /** Internal circuit slug — keys into track-paths.ts. */
+  circuitKey: string;
+  /** Race-day ISO date (YYYY-MM-DD). */
+  date: string;
+}
+
+export interface DriverStandingRow {
+  position: number;
+  name: string;
+  team: string;
+  points: number;
+  wins: number;
+}
+
+export interface ConstructorStandingRow {
+  position: number;
+  team: string;
+  chassis: string | null;
+  points: number;
+}
+
+export interface SeasonPayload {
+  year: number;
+  schedule: ScheduleRace[];
+  drivers: DriverStandingRow[];
+  constructors: ConstructorStandingRow[];
+  /** Round number of the most recently completed race (0 if none yet). */
+  completedRounds: number;
+  /** True when upstream Jolpi fetch failed and a stub was returned. */
+  isStub: boolean;
+}
+
+export interface RaceResultRow {
+  position: number;
+  name: string;
+  team: string;
+  /** Total time for the winner, gap for others, status (DNF/DSQ) when no time. */
+  time: string;
+  points: number;
+}
+
+export interface RaceResultsPayload {
+  year: number;
+  round: number;
+  name: string;
+  date: string;
+  results: RaceResultRow[];
+}

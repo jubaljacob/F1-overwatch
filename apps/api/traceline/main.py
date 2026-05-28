@@ -4,7 +4,7 @@ from fastapi.middleware.gzip import GZipMiddleware
 
 from traceline import __version__
 from traceline.config import settings
-from traceline.routes import health, sessions, strategy
+from traceline.routes import health, seasons, sessions, strategy
 
 
 def create_app() -> FastAPI:
@@ -23,6 +23,7 @@ def create_app() -> FastAPI:
     # RaceData blobs are ~6MB raw, ~1.5MB gzipped — see CLAUDE.md §6.2.
     app.add_middleware(GZipMiddleware, minimum_size=1024)
     app.include_router(health.router)
+    app.include_router(seasons.router)
     app.include_router(sessions.router)
     app.include_router(strategy.router)
     return app

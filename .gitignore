@@ -36,6 +36,8 @@ apps/api/.fastf1-cache/
 apps/api/.racedata-cache/
 .openf1-cache/
 apps/api/.openf1-cache/
+.jolpi-cache/
+apps/api/.jolpi-cache/
 precomputed/
 *.parquet
 

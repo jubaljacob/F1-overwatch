@@ -112,6 +112,21 @@ def compute_race_data_openf1(year: int, round_: int, session_type: str = "R") ->
     if t0 is None:
         raise RuntimeError("OpenF1 session missing both date_start and lap timestamps")
 
+    # Bail loudly when OpenF1 has no /location data for any driver in this
+    # session. Most commonly this means the race just ran and OpenF1 hasn't
+    # ingested the GPS dump yet (it lags a few hours behind), or the
+    # session was cancelled. Returning an empty payload would let the
+    # frontend cache "nothing" forever — refuse here so a retry next hour
+    # gets fresh data.
+    from traceline.services.fastf1_loader import TelemetryFetchError
+
+    if not per_driver_loc:
+        raise TelemetryFetchError(
+            "OpenF1 has no position data for this session yet — try again later. "
+            "Race weekends typically take a few hours after the chequered flag "
+            "before per-tick telemetry is available."
+        )
+
     # Time bounds: from the earliest location sample to the latest. Then trim
     # the front so the replay starts 8 minutes before lap 1 (matches the
     # FastF1 path; see PRE_RACE_LEAD_IN_S).

@@ -20,6 +20,9 @@ class Settings(BaseSettings):
     # racedata blob cache + a proper rate-limit-aware fetcher.
     openf1_cache_dir: Path = Path(".openf1-cache")
     openf1_cache_enabled: bool = True
+    # Jolpi (Ergast mirror) cache for season schedule + standings. Short
+    # TTL since standings change every race weekend.
+    jolpi_cache_dir: Path = Path(".jolpi-cache")
     cors_origins: list[str] = ["http://localhost:3000", "http://localhost:3001"]
     # "fastf1" (default upstream) or "openf1" (HTTP fallback). FastF1 is
     # currently blocked by F1's CloudFront IP filter; flip to "openf1" via
@@ -32,3 +35,4 @@ settings.fastf1_cache_dir.mkdir(parents=True, exist_ok=True)
 settings.racedata_cache_dir.mkdir(parents=True, exist_ok=True)
 if settings.openf1_cache_enabled:
     settings.openf1_cache_dir.mkdir(parents=True, exist_ok=True)
+settings.jolpi_cache_dir.mkdir(parents=True, exist_ok=True)
