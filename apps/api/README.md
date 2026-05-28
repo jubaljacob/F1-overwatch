@@ -1,6 +1,6 @@
-# TraceLine API
+# F1Overwatch API
 
-FastAPI backend powering the TraceLine replay platform.
+FastAPI backend powering the F1Overwatch replay platform.
 
 ```powershell
 uv sync

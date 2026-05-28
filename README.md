@@ -1,4 +1,4 @@
-# TraceLine
+# F1Overwatch
 
 Web-based Formula 1 race replay and analytics platform. Loads historical F1 telemetry (via FastF1 or the OpenF1 HTTP fallback), processes it server-side, and renders the race as an interactive replay in a Next.js frontend with a leaderboard, delta-time charts, tyre-strategy simulator, and ML-driven insights.
 
@@ -150,4 +150,4 @@ FastF1 is the default upstream. When F1's CloudFront IP filter blocks FastF1 (th
 
 ## Disclaimer
 
-Formula 1, F1, FIA, and team names are trademarks of their respective owners. TraceLine uses publicly available timing data via FastF1 and OpenF1 for educational and non-commercial analysis. Not affiliated with or endorsed by Formula 1.
+Formula 1, F1, FIA, and team names are trademarks of their respective owners. F1Overwatch uses publicly available timing data via FastF1 and OpenF1 for educational and non-commercial analysis. Not affiliated with or endorsed by Formula 1.

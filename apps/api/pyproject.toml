@@ -1,7 +1,7 @@
 [project]
 name = "traceline-api"
 version = "0.0.0"
-description = "TraceLine FastAPI backend"
+description = "F1Overwatch FastAPI backend"
 readme = "README.md"
 requires-python = ">=3.11,<3.13"
 dependencies = [

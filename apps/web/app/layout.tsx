@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "TraceLine",
+  title: "F1Overwatch",
   description: "Web-based Formula 1 race replay and analytics platform.",
 };
 

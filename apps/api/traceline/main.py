@@ -9,7 +9,7 @@ from traceline.routes import health, sessions, strategy
 
 def create_app() -> FastAPI:
     app = FastAPI(
-        title="TraceLine API",
+        title="F1Overwatch API",
         version=__version__,
         description="F1 race replay and analytics backend.",
     )

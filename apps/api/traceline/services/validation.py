@@ -1,6 +1,6 @@
 """Leaderboard accuracy harness for P2 acceptance.
 
-We compare TraceLine's per-frame leaderboard order against FastF1's official
+We compare F1Overwatch's per-frame leaderboard order against FastF1's official
 end-of-lap `Position` field — that's the authoritative ground truth.
 
 Sampling strategy: for each driver D and each completed lap L, we pick the

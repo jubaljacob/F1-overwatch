@@ -18,7 +18,7 @@ export default function HomePage() {
     <main className="min-h-screen p-8 sm:p-12">
       <div className="mx-auto max-w-5xl space-y-10">
         <header className="space-y-2">
-          <h1 className="text-4xl font-bold tracking-tight">TraceLine</h1>
+          <h1 className="text-4xl font-bold tracking-tight">F1Overwatch</h1>
           <p className="text-muted-foreground max-w-2xl">
             Web-based Formula 1 race replay and analytics — accurate leaderboard,
             tyre-strategy simulator, and a 3D track viewer with elevation. Pick a

@@ -1,4 +1,4 @@
--- TraceLine P0 schema.
+-- F1Overwatch P0 schema.
 -- Apply to Supabase via `supabase db push` once a Supabase project is provisioned,
 -- or via the Postgres CLI for local development:
 --   psql $DATABASE_URL -f supabase/migrations/0001_init.sql

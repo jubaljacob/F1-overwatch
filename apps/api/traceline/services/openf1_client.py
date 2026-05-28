@@ -2,7 +2,7 @@
 
 OpenF1 is a public, schema-clean alternative to scraping F1's livetiming
 endpoint directly. It mirrors much of the same data via JSON HTTP, which lets
-us keep TraceLine working when F1's CDN is blocking FastF1 (the situation as
+us keep F1Overwatch working when F1's CDN is blocking FastF1 (the situation as
 of 2026-05-26).
 
 Scope here is deliberately small: only the endpoints the RaceData loader

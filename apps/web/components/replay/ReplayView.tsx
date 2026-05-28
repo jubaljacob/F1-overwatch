@@ -125,7 +125,7 @@ export function ReplayView({ year, round, sessionType }: Props) {
           className="text-lg font-semibold tracking-tight transition-opacity hover:opacity-70"
           title="Back to circuit picker"
         >
-          TraceLine
+          F1Overwatch
         </Link>
         <span className="text-muted-foreground text-sm">
           {findCircuit(raceData.meta.year, raceData.meta.round)?.name ?? raceData.meta.circuit}
