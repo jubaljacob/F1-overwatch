@@ -12,8 +12,6 @@ It is a from-scratch successor to and improvement on `IAmTomShaw/f1-race-replay`
 - Flat track rendering → elevation, sector heatmaps, racing lines
 - Poor street-circuit accuracy → per-circuit correction layer
 
-See [`PROJECT_PLAN.md`](./PROJECT_PLAN.md) for the full roadmap.
-
 ## Quick start
 
 Prerequisites: Node 20+, pnpm 9+, Python 3.11+, [uv](https://github.com/astral-sh/uv), Docker.
@@ -76,8 +74,7 @@ traceline/
 │   ├── shared-types/              TS types generated from Pydantic schemas
 │   └── track-data/                Static circuit centrelines, elevation, sectors
 ├── supabase/                      Database migrations
-├── docker-compose.yml             Postgres, Redis for local dev
-└── PROJECT_PLAN.md                Full roadmap and rationale
+└── docker-compose.yml             Postgres, Redis for local dev
 ```
 
 ## Core data model
@@ -111,7 +108,7 @@ type Frame = {
 
 ## Build phases
 
-Work proceeds in phases — each has acceptance criteria in `PROJECT_PLAN.md`.
+Work proceeds in phases:
 
 - **P0 — Foundations:** monorepo, FastAPI scaffold, Next.js scaffold, FastF1 session loader, JSON telemetry endpoint, Postgres via Supabase, basic auth.
 - **P1 — Replay MVP:** Canvas track renderer, playback engine, leaderboard, basic controls. One race end-to-end.
