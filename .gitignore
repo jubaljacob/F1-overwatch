@@ -39,8 +39,9 @@ apps/api/.openf1-cache/
 precomputed/
 *.parquet
 
-# Claude Code local state
+# Claude Code local state and agent context
 .claude/
+CLAUDE.md
 
 # Scratch
 image.png
